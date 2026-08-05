@@ -1,8 +1,8 @@
 class Libxo < Formula
   desc "Allows an application to generate text, XML, JSON, and HTML output"
   homepage "https://juniper.github.io/libxo/libxo-manual.html"
-  url "https://github.com/Juniper/libxo/releases/download/1.7.5/libxo-1.7.5.tar.gz"
-  sha256 "d12249ffad3ef04b160e6419adf1bbe7e593a60bb23f0a0a077fa780b214934a"
+  url "https://github.com/Juniper/libxo/releases/download/2.0.0/libxo-2.0.0.tar.gz"
+  sha256 "982de1877309dd9d57f4cabf2c8bbf42c1c15dc402cd8586ab1e4eabaea298eb"
   license "BSD-2-Clause"
 
   bottle do
@@ -19,11 +19,19 @@ class Libxo < Formula
   end
 
   depends_on "libtool" => :build
+  depends_on "gettext"
 
   def install
+    # `bool` is used as an identifier, which C23 no longer allows
+    ENV["ac_cv_prog_cc_c23"] = "no"
+    # Nothing uses libcrypto, but finding it adds -lcrypto to every link
+    ENV["ac_cv_lib_crypto_MD5_Init"] = "no"
+
+    # configure only looks for gettext in /usr, /opt/local and /usr/local
     system "./configure", "--disable-debug",
                           "--disable-dependency-tracking",
                           "--disable-silent-rules",
+                          "--with-gettext=#{formula_opt_prefix("gettext")}",
                           "--prefix=#{prefix}"
     system "make", "install"
   end
