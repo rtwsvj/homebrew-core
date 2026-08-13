@@ -2,8 +2,8 @@ class StellarCore < Formula
   desc "Backbone of the Stellar (XLM) network"
   homepage "https://www.stellar.org/"
   url "https://github.com/stellar/stellar-core.git",
-      tag:      "v27.1.0",
-      revision: "3589a696b0d4ef5a2cf2124e349c671d71886d9c"
+      tag:      "v28.0.0",
+      revision: "a9b8613218e141ddb89d621e5f04d4c75a149d36"
   license "Apache-2.0"
   head "https://github.com/stellar/stellar-core.git", branch: "master"
 
@@ -49,10 +49,38 @@ class StellarCore < Formula
     # remove toolchain selection
     inreplace "src/Makefile.am", "cargo +$(RUST_TOOLCHAIN_CHANNEL)", "cargo"
 
+    # GCC 13+ no longer transitively includes <cstdint>, which the vendored
+    # `libmedida` sources rely on for `uint64_t`. Force-include it.
+    # https://github.com/stellar/medida/pull/34
+    ENV.append "CXXFLAGS", "-include cstdint" if OS.linux?
+
     system "./autogen.sh"
     system "./configure", "--disable-silent-rules",
                           "--enable-postgres",
                           *std_configure_args
+
+    # A vendored soroban lockfile pins `ethnum` 1.5.0, which fails to build on
+    # current Rust: it transmutes `()` into the now-non-zero-sized
+    # `TryFromIntError` (rustc E0512). Pre-extract the crate into the shared
+    # `CARGO_HOME` and size-match the transmute so the later build reuses it.
+    # https://github.com/nlordell/ethnum-rs/issues/60
+    cargo_home = ENV.fetch("CARGO_HOME", "#{Dir.home}/.cargo")
+    (buildpath/"ethnum-shim/src").mkpath
+    (buildpath/"ethnum-shim/Cargo.toml").write <<~TOML
+      [workspace]
+      [package]
+      name = "ethnum-shim"
+      version = "0.0.0"
+      edition = "2021"
+      [dependencies]
+      ethnum = "=1.5.0"
+    TOML
+    (buildpath/"ethnum-shim/src/main.rs").write "fn main() {}\n"
+    system "cargo", "fetch", "--manifest-path", buildpath/"ethnum-shim/Cargo.toml"
+    Dir.glob("#{cargo_home}/registry/src/*/ethnum-1.5.0/src/error.rs").each do |error_rs|
+      inreplace error_rs, "unsafe { mem::transmute(()) }", "unsafe { mem::transmute(0u8) }"
+    end
+
     system "make", "install"
   end
 
