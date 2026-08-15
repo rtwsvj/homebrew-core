@@ -7,8 +7,8 @@ class Llvm < Formula
   head "https://github.com/llvm/llvm-project.git", branch: "main"
 
   stable do
-    url "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/llvm-project-22.1.8.src.tar.xz"
-    sha256 "922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888"
+    url "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.0-rc3/llvm-project-23.1.0-rc3.src.tar.xz"
+    sha256 "15796d21e2c5818895edf06a46d7748972b0cb799a499112045b056972f9984b"
 
     # Fix triple config loading for clang-cl
     patch do
@@ -38,14 +38,11 @@ class Llvm < Formula
   # https://llvm.org/docs/GettingStarted.html#requirement
   depends_on "cmake" => :build
   depends_on "ninja" => :build
-  depends_on "swig" => :build # for lldb
-  depends_on "python@3.14"
-  depends_on "xz" # for lldb
+  depends_on "python@3.14" => [:build, :test]
   depends_on "zstd"
 
   uses_from_macos "libedit"
   uses_from_macos "libffi"
-  uses_from_macos "ncurses" # for lldb
 
   # Z3 needs C++20 std::format which is only available in Xcode 15.3 or later.
   # To avoid a dependency loop, we disable Z3 support on older macOS.
@@ -87,20 +84,14 @@ class Llvm < Formula
     ]
 
     unless versioned_formula?
+      runtimes << "openmp"
+      odie "Remove Z3 solver!" if build.stable? && version >= "24"
       enable_z3 = deps.map(&:name).include?("z3")
-      projects << "lldb"
-
-      if OS.mac?
-        runtimes << "openmp"
-      else
-        projects << "openmp"
-      end
     end
 
     python_versions = Formula.names
                              .select { |name| name.start_with? "python@" }
                              .map { |py| py.delete_prefix("python@") }
-    site_packages = Language::Python.site_packages(python3).delete_prefix("lib/")
 
     # compiler-rt has some iOS simulator features that require i386 symbols
     # I'm assuming the rest of clang needs support too for 32-bit compilation
@@ -109,9 +100,6 @@ class Llvm < Formula
     # can almost be treated as an entirely different build from llvm.
     ENV.permit_arch_flags
 
-    # we install the lldb Python module into libexec to prevent users from
-    # accidentally importing it with a non-Homebrew Python or a Homebrew Python
-    # in a non-default prefix. See https://lldb.llvm.org/resources/caveats.html
     args = %W[
       -DLLVM_ENABLE_PROJECTS=#{projects.join(";")}
       -DLLVM_ENABLE_RUNTIMES=#{runtimes.join(";")}
@@ -121,19 +109,15 @@ class Llvm < Formula
       -DLLVM_ENABLE_EH=OFF
       -DLLVM_ENABLE_FFI=ON
       -DLLVM_ENABLE_RTTI=ON
+      -DLLVM_ENABLE_Z3_SOLVER=#{enable_z3 ? "ON" : "OFF"}
+      -DLLVM_INCLUDE_BENCHMARKS=OFF
       -DLLVM_INCLUDE_DOCS=OFF
       -DLLVM_INCLUDE_TESTS=OFF
       -DLLVM_INSTALL_UTILS=ON
-      -DLLVM_ENABLE_Z3_SOLVER=#{enable_z3 ? "ON" : "OFF"}
       -DLLVM_OPTIMIZED_TABLEGEN=ON
       -DLLVM_TARGETS_TO_BUILD=all
       -DLLVM_USE_RELATIVE_PATHS_IN_FILES=ON
       -DLLVM_SOURCE_PREFIX=.
-      -DLLDB_USE_SYSTEM_DEBUGSERVER=ON
-      -DLLDB_ENABLE_PYTHON=ON
-      -DLLDB_ENABLE_LUA=OFF
-      -DLLDB_ENABLE_LZMA=ON
-      -DLLDB_PYTHON_RELATIVE_PATH=libexec/#{site_packages}
       -DLIBOMP_INSTALL_ALIASES=OFF
       -DLIBCXX_INSTALL_MODULES=ON
       -DCLANG_PYTHON_BINDINGS_VERSIONS=#{python_versions.join(";")}
@@ -497,8 +481,11 @@ class Llvm < Formula
       CLANG_CONFIG_FILE_SYSTEM_DIR: #{clang_config_file_dir}
       CLANG_CONFIG_FILE_USER_DIR:   ~/.config/clang
 
-      LLD is now provided in a separate formula:
+      LLD and LLDB are now provided in separate formulae:
         brew install lld
+        brew install lldb
+
+      Z3 solver will be removed in LLVM 24 since it is marked unsupported by LLVM.
     EOS
 
     on_macos do
@@ -791,17 +778,7 @@ class Llvm < Formula
           return 0;
         }
       C
-      system bin/"clang", "--analyze", "-Xanalyzer", "-analyzer-constraints=z3", "unreachable.c"
-
-      # Check that lldb can use Python
-      lldb_script_interpreter_info = JSON.parse(shell_output("#{bin}/lldb --print-script-interpreter-info"))
-      assert_equal "python", lldb_script_interpreter_info["language"]
-      python_test_cmd = "import pathlib, sys; print(pathlib.Path(sys.prefix).resolve())"
-      assert_match shell_output("#{python3} -c '#{python_test_cmd}'"),
-                   pipe_output("#{bin}/lldb", <<~EOS)
-                     script
-                     #{python_test_cmd}
-                   EOS
+      system bin/"clang", "--analyze", "-Xanalyzer", "-analyzer-constraints=unsupported-z3", "unreachable.c"
     end
 
     # Ensure LLVM did not regress output of `llvm-config --system-libs` which for a time
