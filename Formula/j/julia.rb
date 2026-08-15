@@ -2,8 +2,8 @@ class Julia < Formula
   desc "Fast, Dynamic Programming Language"
   homepage "https://julialang.org/"
   # Use the `-full` tarball to avoid having to download during the build.
-  url "https://github.com/JuliaLang/julia/releases/download/v1.12.6/julia-1.12.6-full.tar.gz"
-  sha256 "711f3aa8d6ec5c9004593eb8f3d53e3564cd759acba8ad4adae967afc20332cc"
+  url "https://github.com/JuliaLang/julia/releases/download/v1.12.7/julia-1.12.7-full.tar.gz"
+  sha256 "5c7d85b771de3185eeca9fbc2e6173d8bcf6d74f68418622a9e9c43ad752af51"
   license all_of: ["MIT", "BSD-3-Clause", "Apache-2.0", "BSL-1.0"]
   head "https://github.com/JuliaLang/julia.git", branch: "master"
 
@@ -93,7 +93,11 @@ class Julia < Formula
     ]
 
     args << "TAGGED_RELEASE_BANNER=Built by #{tap&.user || "unknown user"} (v#{pkg_version})"
-    args << "MACOSX_VERSION_MIN=#{MacOS.version}" if OS.mac?
+    if OS.mac?
+      args << "MACOSX_DEPLOYMENT_TARGET=#{MacOS.version}"
+      # `-force_load` takes an archive path, so pass the `-lutf8proc` of `USE_SYSTEM_UTF8PROC` through as-is
+      args << "whole_archive=$(if $(filter -l%,$(1)),$(1),-Xlinker -force_load $(1))"
+    end
 
     # Set MARCH and JULIA_CPU_TARGET to ensure Julia works on machines we distribute to.
     # https://github.com/JuliaLang/julia/blob/master/doc/src/devdocs/build/distributing.md#target-architectures
